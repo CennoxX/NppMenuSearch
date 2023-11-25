@@ -129,7 +129,7 @@ namespace NppMenuSearch
 
         internal static string GetMenuSearchTitle()
         {
-            string title = "Search Notepad++";
+            string title = "Suche";
             string shortcut = GetMenuSearchShortcut();
             if (shortcut != "")
                 title = $"{title} ({shortcut})";

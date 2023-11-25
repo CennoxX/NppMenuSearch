@@ -227,7 +227,7 @@ namespace NppMenuSearch.Forms
                 band.fStyle = Win32.RBBS_GRIPPERALWAYS;
                 band.hwndChild = Handle;
                 band.cx = Size.Width;
-                band.cxMinChild = 170;
+                band.cxMinChild = 185;
                 band.cxIdeal = 0;
                 band.cyMinChild = frmSearch.Height;
                 band.cyMaxChild = frmSearch.Height;

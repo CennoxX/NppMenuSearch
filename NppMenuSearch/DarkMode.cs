@@ -27,14 +27,16 @@ namespace NppMenuSearch
         public static Color ControlBackColor { get { return Enabled ? GetDarkModeColor(NppDarkModeColorIndex.Background, SystemColors.Control) : SystemColors.Control; } }
         public static Color ControlForeColor { get { return Enabled ? GetDarkModeColor(NppDarkModeColorIndex.Text, SystemColors.ControlText) : SystemColors.ControlText; } }
 
-        public static Color SelectedItemBackColor { get { return Enabled ? Color.LightGray : Color.LightGray; } }
-        public static Color SelectedItemForeColor { get { return Enabled ? Color.Black : Color.Black; } }
+        public static Color SelectedItemBackColor { get { return Enabled ? Color.DodgerBlue : Color.LightGray; } }
+        public static Color SelectedItemForeColor { get { return Enabled ? Color.White : Color.Black; } }
 
         public static Bitmap GearIcon { get { return Enabled ? Properties.Resources.Gear_DarkMode : Properties.Resources.Gear; } }
         public static Bitmap SelectedGearIcon { get { return Properties.Resources.Gear; } }
 
         public static Bitmap ClearNormalIcon { get { return Enabled ? Properties.Resources.ClearNormal_DarkMode : Properties.Resources.ClearNormal; } }
         public static Bitmap ClearPressedIcon { get { return Enabled ? Properties.Resources.ClearPressed_DarkMode : Properties.Resources.ClearPressed; } }
+       
+        public static FormBorderStyle FormBorderStyle { get { return Enabled ? FormBorderStyle.None : FormBorderStyle.SizableToolWindow; } }
 
         internal static void OnChanged()
         {
@@ -89,7 +91,7 @@ namespace NppMenuSearch
             if (control is TextBoxBase)
             {
                 // Note that the Cue banner color can not be changed (only via SetWindowTheme, but NPPM_DARKMODESUBCLASSANDTHEME does not work for that?)
-                control.BackColor = TextBackColor;
+                control.BackColor = ControlBackColor;
                 control.ForeColor = TextForeColor;
             }
             else if (control is ListView)
@@ -97,6 +99,10 @@ namespace NppMenuSearch
                 // Note that the group color can not be changed (only probably via SetWindowTheme("DarkMode_ItemsView") on Windows 10 ?  But ThemeExplorer suggests no.)
                 control.BackColor = TextBackColor;
                 control.ForeColor = TextForeColor;
+            }
+            else if (control is Form form)
+            {
+                form.FormBorderStyle = FormBorderStyle;
             }
             else
             {
