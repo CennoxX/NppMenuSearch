@@ -122,7 +122,7 @@
             this.ControlBox = false;
             this.Controls.Add(this.viewResults);
             this.Controls.Add(this.lblHelp);
-            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.SizableToolWindow;
+            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
             this.KeyPreview = true;
             this.Margin = new System.Windows.Forms.Padding(4);
             this.Name = "ResultsPopup";
