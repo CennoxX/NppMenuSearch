@@ -23,14 +23,7 @@ namespace NppMenuSearch
 
         static IntPtr DialogProcedure(IntPtr hwndDlg, uint uMsg, IntPtr wParam, IntPtr lParam)
         {
-            switch (uMsg)
-            {
-                case (uint)Win32.WM_INITDIALOG:
-                    return (IntPtr)1;
-
-                default:
-                    return IntPtr.Zero;
-            }
+            return IntPtr.Zero;
         }
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -129,6 +122,13 @@ namespace NppMenuSearch
                         if (Win32.IsWindowVisible(hwnd))
                             return hwnd;
                     }
+
+                    if (hwndChild.Count > 1)
+                    {
+                        // Not found on the given page. Stop there instead of searching other pages for controls with the same ID (other hwndChild)
+                        // (if whe have only a single candidate, it does not harm to search other pages).
+                        return IntPtr.Zero;
+                    }
                 }
 
                 Console.WriteLine("navigate via listbox, count: {0}, sel: {1}", count, sel);
@@ -157,6 +157,14 @@ namespace NppMenuSearch
                     {
                         if (Win32.IsWindowVisible(hwnd))
                             return hwnd;
+                    }
+
+
+                    if (hwndChild.Count > 1)
+                    {
+                        // Not found on the given page. Stop there instead of searching other pages for controls with the same ID (other hwndChild)
+                        // (if whe have only a single candidate, it does not harm to search other pages).
+                        return IntPtr.Zero;
                     }
                 }
 
