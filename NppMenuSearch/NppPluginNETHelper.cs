@@ -2648,6 +2648,9 @@ namespace NppPluginNET
         public const int GWL_USERDATA = -21;
         public const int GWL_ID = -12;
 
+        public const int IDOK = 1;
+        public const int IDCANCEL = 2;
+
         public const int WS_CLIPCHILDREN = 0x02000000;
         public const int WS_CHILD = 0x40000000;
         public const int BS_PUSHBUTTON = 0x00000000;

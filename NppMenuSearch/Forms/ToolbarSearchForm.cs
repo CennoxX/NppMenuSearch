@@ -12,6 +12,7 @@ namespace NppMenuSearch.Forms
     {
         public ResultsPopup ResultsPopup { get; private set; }
 
+        IntPtr selfAsDialog = IntPtr.Zero;
         IntPtr hwndRebar = IntPtr.Zero;
         public IntPtr HwndToolbar { get; private set; }
 
@@ -45,6 +46,7 @@ namespace NppMenuSearch.Forms
             txtSearch.HandleCreated += (sender, e) => DarkMode.ApplyTheme((Control)sender);
 
             HandleCreated += ToolbarSearchForm_HandleCreated;
+            HandleDestroyed += ToolbarSearchForm_HandleDestroyed;
 
             UpdateMenuTexts();
         }
@@ -69,6 +71,13 @@ namespace NppMenuSearch.Forms
 
         private void DoDelayedInit()
         {
+            // Let Notepad++'s IsDialogMessage() activate those buttons on ESC / ENTER key press:
+            Win32.SetWindowLong(btnCancel.Handle, Win32.GWL_ID, Win32.IDCANCEL);
+            Win32.SetWindowLong(btnOk.Handle, Win32.GWL_ID, Win32.IDOK);
+
+            selfAsDialog = Handle;
+            Win32.SendMessage(PluginBase.nppData._nppHandle, NppMsg.NPPM_MODELESSDIALOG, (int)NppMsg.MODELESSDIALOGADD, selfAsDialog);
+
             ResultsPopup = new ResultsPopup();
             ResultsPopup.OwnerTextBox = txtSearch;
 
@@ -79,6 +88,12 @@ namespace NppMenuSearch.Forms
             DarkMode_Changed();
 
             AfterCompleteInit?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void ToolbarSearchForm_HandleDestroyed(object sender, EventArgs e)
+        {
+            if(selfAsDialog != IntPtr.Zero)
+                Win32.SendMessage(PluginBase.nppData._nppHandle, NppMsg.NPPM_MODELESSDIALOG, (int)NppMsg.MODELESSDIALOGREMOVE, selfAsDialog);
         }
 
         private void DarkMode_Changed()
@@ -493,6 +508,17 @@ namespace NppMenuSearch.Forms
         {
             txtSearch.Text = "";
             Win32.SetFocus(PluginBase.GetCurrentScintilla());
+        }
+
+        private void btnCancel_Click(object sender, EventArgs e)
+        {
+            txtSearch.Text = "";
+            Win32.SetFocus(PluginBase.GetCurrentScintilla());
+        }
+
+        private void btnOk_Click(object sender, EventArgs e)
+        {
+            ResultsPopup?.ItemSelected();
         }
 
         private void ToolbarSearchForm_SizeChanged(object sender, EventArgs e)

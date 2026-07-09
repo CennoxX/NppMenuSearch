@@ -885,7 +885,7 @@ namespace NppMenuSearch.Forms
             RebuildResultsList();
         }
 
-        void ItemSelected()
+        public void ItemSelected()
         {
             if (viewResults.SelectedItems.Count == 0)
                 return;

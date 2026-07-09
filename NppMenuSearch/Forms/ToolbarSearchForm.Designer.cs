@@ -38,6 +38,8 @@
             this.menuItemFixWidgetSize = new System.Windows.Forms.MenuItem();
             this.menuItem1 = new System.Windows.Forms.MenuItem();
             this.menuItemAbout = new System.Windows.Forms.MenuItem();
+            this.btnOk = new System.Windows.Forms.Button();
+            this.btnCancel = new System.Windows.Forms.Button();
             this.frmSearch.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.picClear)).BeginInit();
             this.SuspendLayout();
@@ -46,6 +48,8 @@
             // 
             this.frmSearch.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right)));
             this.frmSearch.BackColor = System.Drawing.SystemColors.Control;
+            this.frmSearch.Controls.Add(this.btnCancel);
+            this.frmSearch.Controls.Add(this.btnOk);
             this.frmSearch.Controls.Add(this.picClear);
             this.frmSearch.Controls.Add(this.txtSearch);
             this.frmSearch.Controls.Add(this.btnOptions);
@@ -72,6 +76,8 @@
             // 
             // txtSearch
             // 
+            this.txtSearch.AcceptsReturn = true;
+            this.txtSearch.AcceptsTab = true;
             this.txtSearch.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.txtSearch.CausesValidation = false;
             this.txtSearch.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -127,10 +133,38 @@
             this.menuItemAbout.Text = "&About...";
             this.menuItemAbout.Click += new System.EventHandler(this.menuItemAbout_Click);
             // 
+            // btnOk
+            // 
+            this.btnOk.AccessibleDescription = "Activate Selection";
+            this.btnOk.DialogResult = System.Windows.Forms.DialogResult.OK;
+            this.btnOk.Location = new System.Drawing.Point(38, 7);
+            this.btnOk.Name = "btnOk";
+            this.btnOk.Size = new System.Drawing.Size(75, 23);
+            this.btnOk.TabIndex = 3;
+            this.btnOk.Text = "OK";
+            this.btnOk.UseVisualStyleBackColor = true;
+            this.btnOk.Visible = false;
+            this.btnOk.Click += new System.EventHandler(this.btnOk_Click);
+            // 
+            // btnCancel
+            // 
+            this.btnCancel.AccessibleDescription = "Cancel Selection";
+            this.btnCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel;
+            this.btnCancel.Location = new System.Drawing.Point(119, 7);
+            this.btnCancel.Name = "btnCancel";
+            this.btnCancel.Size = new System.Drawing.Size(75, 23);
+            this.btnCancel.TabIndex = 4;
+            this.btnCancel.Text = "Cancel";
+            this.btnCancel.UseVisualStyleBackColor = true;
+            this.btnCancel.Visible = false;
+            this.btnCancel.Click += new System.EventHandler(this.btnCancel_Click);
+            // 
             // ToolbarSearchForm
             // 
+            this.AcceptButton = this.btnOk;
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
             this.BackColor = System.Drawing.SystemColors.Control;
+            this.CancelButton = this.btnCancel;
             this.ClientSize = new System.Drawing.Size(612, 59);
             this.Controls.Add(this.frmSearch);
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
@@ -156,5 +190,7 @@
         private System.Windows.Forms.MenuItem menuItemFixWidgetSize;
         private System.Windows.Forms.MenuItem menuItem1;
         private System.Windows.Forms.MenuItem menuItemAbout;
+        private System.Windows.Forms.Button btnCancel;
+        private System.Windows.Forms.Button btnOk;
     }
 }
