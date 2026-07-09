@@ -25,6 +25,10 @@ namespace NppMenuSearch.Forms
 
             DarkMode.Changed += DarkMode_Changed;
             DarkMode_Changed();
+
+            // Let Notepad++'s IsDialogMessage() activate those buttons on ESC / ENTER key press:
+            Win32.SetWindowLong(btnCancel.Handle, Win32.GWL_ID, Win32.IDCANCEL);
+            Win32.SetWindowLong(btnOk.Handle, Win32.GWL_ID, Win32.IDOK);
         }
 
         private void DarkMode_Changed()
@@ -37,11 +41,13 @@ namespace NppMenuSearch.Forms
             if (Visible)
             {
                 Text = Main.GetMenuSearchTitle();
+                Win32.SendMessage(PluginBase.nppData._nppHandle, NppMsg.NPPM_MODELESSDIALOG, (int)NppMsg.MODELESSDIALOGADD, Handle);
             }
             else
             {
                 txtSearch.Text = "";
                 ResultsPopup.Hide();
+                Win32.SendMessage(PluginBase.nppData._nppHandle, NppMsg.NPPM_MODELESSDIALOG, (int)NppMsg.MODELESSDIALOGREMOVE, Handle);
             }
         }
 
@@ -153,5 +159,16 @@ namespace NppMenuSearch.Forms
             }
         }
 
+        private void btnOk_Click(object sender, EventArgs e)
+        {
+            ResultsPopup.ItemSelected();
+        }
+
+        private void btnCancel_Click(object sender, EventArgs e)
+        {
+            ResultsPopup.Hide();
+            ResultsPopup.OnFinished();
+            Win32.SetFocus(PluginBase.GetCurrentScintilla());
+        }
     }
 }
