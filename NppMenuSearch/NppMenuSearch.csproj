@@ -65,6 +65,7 @@
     <Compile Include="DarkMode.cs" />
     <Compile Include="DialogHelper.cs" />
     <Compile Include="DialogItem.cs" />
+    <Compile Include="FileContentSearcher.cs" />
     <Compile Include="Forms\FlyingSearchForm.cs">
       <SubType>Form</SubType>
     </Compile>

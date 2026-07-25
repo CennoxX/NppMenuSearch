@@ -26,12 +26,14 @@
 			<Menu>Menu</Menu>
 			<Preferences>Preferences</Preferences>
 			<OpenFiles>Open Files</OpenFiles>
+			<!-- Files whose contents contain the search term (only shown when session snapshot/periodic backup is enabled in Notepad++) -->
+			<SearchResults>Search results</SearchResults>
 		</GroupTitles>
 		<Help>
 			<!-- Preferrably, the two scentences <RepeatForAllResults> and <SwitchGroup> should fit onto a single line in the bottom of the results popup.
-				Automatic line breaking is applied, but you may also force a line break by e.g. putting &#10; just before the closing tag </RepeatForAllResults> 
+				Automatic line breaking is applied, but you may also force a line break by e.g. putting &#10; just before the closing tag </RepeatForAllResults>
 				-->
-			<SwitchGroup>TAB switches groups: Recently Used ↔ Menu ↔ Open Files ↔ Preferences.</SwitchGroup>
+			<SwitchGroup>TAB switches groups: Recently Used ↔ Menu ↔ Open Files ↔ Search results ↔ Preferences.</SwitchGroup>
 			<RepeatForAllResults>Press {0} again for all results.</RepeatForAllResults>
 		</Help>
 	</Native-Lang>

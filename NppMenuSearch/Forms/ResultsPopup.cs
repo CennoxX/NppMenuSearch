@@ -16,18 +16,28 @@ namespace NppMenuSearch.Forms
     {
         const int DefaultMaxMenuResults = 10;
         const int DefaultMaxPreferencesResults = 7;
+        const int DefaultMaxSearchResults = 10;
         const int RecentlyUsedListCount = 5;
         const int BlinkRepeat = 4;
 
+        // Only search file contents once the search term is at least this long, to avoid matching
+        // (almost) every open file on the first keystrokes.
+        const int MinContentSearchLength = 3;
+
         int MaxMenuResults = DefaultMaxMenuResults;
         int MaxPreferencesResults = DefaultMaxPreferencesResults;
+        int MaxSearchResults = DefaultMaxSearchResults;
 
         public event EventHandler Finished;
 
-        ListViewGroup resultGroupRecentlyUsed = new ListViewGroup("Recently Used", HorizontalAlignment.Left);
-        ListViewGroup resultGroupMenu         = new ListViewGroup("Menu",          HorizontalAlignment.Left);
-        ListViewGroup resultGroupPreferences  = new ListViewGroup("Preferences",   HorizontalAlignment.Left);
-        ListViewGroup resultGroupTabs         = new ListViewGroup("Open Files",    HorizontalAlignment.Left);
+        ListViewGroup resultGroupRecentlyUsed = new ListViewGroup("Recently Used",  HorizontalAlignment.Left);
+        ListViewGroup resultGroupMenu         = new ListViewGroup("Menu",           HorizontalAlignment.Left);
+        ListViewGroup resultGroupPreferences  = new ListViewGroup("Preferences",    HorizontalAlignment.Left);
+        ListViewGroup resultGroupTabs         = new ListViewGroup("Open Files",     HorizontalAlignment.Left);
+        ListViewGroup resultGroupSearchResults = new ListViewGroup("Search results", HorizontalAlignment.Left);
+
+        readonly FileContentSearcher contentSearcher = new FileContentSearcher(Main.GetNppConfigDir());
+        int contentSearchGeneration = 0;
 
         public TextBox OwnerTextBox;
         public MenuItem MainMenu;
@@ -43,6 +53,7 @@ namespace NppMenuSearch.Forms
             viewResults.Groups.Add(resultGroupRecentlyUsed);
             viewResults.Groups.Add(resultGroupMenu);
             viewResults.Groups.Add(resultGroupTabs);
+            viewResults.Groups.Add(resultGroupSearchResults);
             viewResults.Groups.Add(resultGroupPreferences);
 
             MainMenu = new MenuItem(IntPtr.Zero);
@@ -76,6 +87,7 @@ namespace NppMenuSearch.Forms
             resultGroupMenu.Header         = Main.Localization.Strings.GroupTitle_Menu;
             resultGroupPreferences.Header  = Main.Localization.Strings.GroupTitle_Preferences;
             resultGroupTabs.Header         = Main.Localization.Strings.GroupTitle_OpenFiles;
+            resultGroupSearchResults.Header = Main.Localization.Strings.GroupTitle_SearchResults;
 
             menuGotoShortcutDefinition.Text = Main.Localization.Strings.MenuTitle_ChangeShortcut;
             menuExecute.Text                = Main.Localization.Strings.MenuTitle_Execute;
@@ -246,6 +258,7 @@ namespace NppMenuSearch.Forms
         {
             MaxMenuResults = int.MaxValue;
             MaxPreferencesResults = int.MaxValue;
+            MaxSearchResults = int.MaxValue;
             lblHelp.Visible = false;
             RebuildResultsList();
         }
@@ -295,12 +308,14 @@ namespace NppMenuSearch.Forms
 
                 MaxMenuResults = DefaultMaxMenuResults;
                 MaxPreferencesResults = DefaultMaxPreferencesResults;
+                MaxSearchResults = DefaultMaxSearchResults;
                 lblHelp.Visible = true;
                 LineBreakHelpText();
 
                 MainMenu = new MenuItem(Win32.SendMessage(PluginBase.nppData._nppHandle, NppMsg.NPPM_INTERNAL_GETMENU, 0, 0));
 
                 FillTabList();
+                contentSearcher.Refresh(TabList.Select(t => t.FullFileName));
 
                 //NeedPreferencesDialog();
 
@@ -310,6 +325,7 @@ namespace NppMenuSearch.Forms
             }
             else
             {
+                contentSearcher.Cancel();
                 OwnerTextBox.TextChanged -= OwnerTextBox_TextChanged;
                 OwnerTextBox.KeyDown -= OwnerTextBox_KeyDown;
             }
@@ -494,6 +510,7 @@ namespace NppMenuSearch.Forms
             resultGroupTabs.Header        = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_OpenFiles,   openTabsFiltered.Count);
             resultGroupMenu.Header        = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_Menu,        menuItems.Length - recentlyUsed.Where(hi => hi is MenuItem).Count());
             resultGroupPreferences.Header = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_Preferences, prefDialogItems.Length - recentlyUsed.Where(hi => hi is DialogItem).Count());
+            resultGroupSearchResults.Header = Main.Localization.Strings.GroupTitle_SearchResults;
 
             foreach (var hi in recentlyUsed)
             {
@@ -562,12 +579,99 @@ namespace NppMenuSearch.Forms
 
             if (viewResults.Items.Count > 0)
                 viewResults.Items[0].Selected = true;
+
+            StartContentSearch();
+        }
+
+        // Kicks off a background scan of the open files' contents for the current search term. The
+        // results arrive asynchronously and are appended to the "Search results" group. Only runs
+        // when Notepad++'s session snapshot/periodic backup is enabled (see FileContentSearcher).
+        void StartContentSearch()
+        {
+            // Bump the generation first so any in-flight result from a previous search is dropped.
+            int generation = ++contentSearchGeneration;
+
+            contentSearcher.Cancel();
+
+            if (!contentSearcher.BackupSnapshotEnabled)
+                return;
+
+            string term = OwnerTextBox.Text.Trim();
+            if (term.Length < MinContentSearchLength)
+                return;
+
+            contentSearcher.BeginSearch(term, generation, OnContentSearchCompleted);
+        }
+
+        // Called on a background thread; marshal back to the UI thread.
+        void OnContentSearchCompleted(int generation, List<SearchResultItem> results)
+        {
+            if (IsDisposed || !IsHandleCreated)
+                return;
+
+            try
+            {
+                BeginInvoke((Action)(() => ShowContentSearchResults(generation, results)));
+            }
+            catch (Exception)
+            {
+                // Window handle was destroyed between the checks above and BeginInvoke; ignore.
+            }
+        }
+
+        void ShowContentSearchResults(int generation, List<SearchResultItem> results)
+        {
+            // Drop results from a search that has since been superseded by newer typing.
+            if (generation != contentSearchGeneration || !Visible)
+                return;
+
+            // Insert before the Preferences items so the Items collection order matches the visual
+            // group order (…Open Files, Search results, Preferences). The Up/Down keys navigate by
+            // Items index, so appending here would make them jump out of order.
+            int insertIndex = viewResults.Items.Count;
+            for (int idx = 0; idx < viewResults.Items.Count; ++idx)
+            {
+                if (viewResults.Items[idx].Group == resultGroupPreferences)
+                {
+                    insertIndex = idx;
+                    break;
+                }
+            }
+
+            int shown = 0;
+            foreach (var r in results)
+            {
+                if (shown++ == MaxSearchResults)
+                    break;
+
+                viewResults.Items.Insert(insertIndex++, new ListViewItem()
+                {
+                    Tag = r,
+                    Text = FormatSearchResultText(r),
+                    ToolTipText = r.ToolTipText,
+                    Group = resultGroupSearchResults,
+                });
+            }
+
+            resultGroupSearchResults.Header = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_SearchResults, results.Count);
+
+            if (viewResults.SelectedItems.Count == 0 && viewResults.Items.Count > 0)
+                viewResults.Items[0].Selected = true;
+        }
+
+        static string FormatSearchResultText(SearchResultItem r)
+        {
+            string preview = (r.LinePreview ?? "").Replace('\r', ' ').Replace('\n', ' ');
+            if (r.MatchCount > 1)
+                return string.Format("{0}:{1} ({2}): {3}", r.DisplayName, r.LineNumber, r.MatchCount, preview);
+            return string.Format("{0}:{1}: {2}", r.DisplayName, r.LineNumber, preview);
         }
 
         void OwnerTextBox_TextChanged(object sender, EventArgs e)
         {
             MaxMenuResults = DefaultMaxMenuResults;
             MaxPreferencesResults = DefaultMaxPreferencesResults;
+            MaxSearchResults = DefaultMaxSearchResults;
             lblHelp.Visible = true;
 
             RebuildResultsList();
@@ -628,6 +732,71 @@ namespace NppMenuSearch.Forms
                 OnFinished();
                 return;
             }
+
+            SearchResultItem searchItem = viewResults.SelectedItems[0].Tag as SearchResultItem;
+            if (searchItem != null)
+            {
+                ActivateSearchResult(searchItem);
+
+                Hide();
+                OwnerTextBox.Text = "";
+
+                OnFinished();
+                return;
+            }
+        }
+
+        // Activates the matching file and jumps to the first matching line (best effort: the line
+        // number comes from the persisted snapshot, which may lag the live buffer by a few seconds).
+        private void ActivateSearchResult(SearchResultItem item)
+        {
+            // Prefer the same mechanism the "Open Files" group uses (NPPM_ACTIVATEDOC by view/index),
+            // which reliably switches to the document. Matching by full path also covers unsaved
+            // "new N" buffers, whose session filename matches the open-file name.
+            TabItem tab = TabList.FirstOrDefault(t =>
+                string.Equals(t.FullFileName, item.FullFileName, StringComparison.OrdinalIgnoreCase));
+
+            IntPtr scintilla;
+            if (tab != null)
+            {
+                Win32.SendMessage(PluginBase.nppData._nppHandle, NppMsg.NPPM_ACTIVATEDOC, tab.ViewNumber, tab.Index);
+
+                scintilla = (tab.ViewNumber == (int)NppMsg.SUB_VIEW)
+                    ? PluginBase.nppData._scintillaSecondHandle
+                    : PluginBase.nppData._scintillaMainHandle;
+            }
+            else
+            {
+                // Not currently open (e.g. a stale session entry): fall back to switching by path.
+                if (string.IsNullOrEmpty(item.FullFileName))
+                    return;
+
+                Win32.SendMessage(PluginBase.nppData._nppHandle, NppMsg.NPPM_SWITCHTOFILE, 0, item.FullFileName);
+                scintilla = PluginBase.GetCurrentScintilla();
+            }
+
+            if (item.LineNumber > 0 && scintilla != IntPtr.Zero)
+                ScrollToLineDeferred(scintilla, item.LineNumber - 1);
+        }
+
+        // Jumping to the line immediately doesn't stick: Notepad++ finishes activating the document
+        // (and restores its own scroll position) after we return here, overriding our scroll. So we
+        // defer the jump to the next idle tick, once activation has settled and the popup is hidden.
+        private void ScrollToLineDeferred(IntPtr scintilla, int line)
+        {
+            EventHandler tick = null;
+            tick = (timer, ev) =>
+            {
+                ((Timer)timer).Stop();
+                ((Timer)timer).Tick -= tick;
+
+                Win32.SendMessage(scintilla, SciMsg.SCI_ENSUREVISIBLEENFORCEPOLICY, line, 0);
+                Win32.SendMessage(scintilla, SciMsg.SCI_GOTOLINE, line, 0);
+                Win32.SendMessage(scintilla, SciMsg.SCI_SCROLLCARET, 0, 0);
+            };
+
+            timerIdle.Tick += tick;
+            timerIdle.Start();
         }
 
         public void OnFinished()

@@ -86,6 +86,7 @@ namespace NppMenuSearch.Localization
                 TryRead(ref translation.GroupTitle_Menu,                  root, "GroupTitles/Menu");
                 TryRead(ref translation.GroupTitle_Preferences,           root, "GroupTitles/Preferences");
                 TryRead(ref translation.GroupTitle_OpenFiles,             root, "GroupTitles/OpenFiles");
+                TryRead(ref translation.GroupTitle_SearchResults,         root, "GroupTitles/SearchResults");
                 TryRead(ref translation.SwitchGroupHelpText,              root, "Help/SwitchGroup");
                 TryRead(ref translation.ShortcutHelpText_arg,             root, "Help/RepeatForAllResults");
 

@@ -90,6 +90,29 @@ namespace NppMenuSearch
             return null;
         }
 
+        // The Notepad++ user config directory (holds config.xml / session.xml). Derived from the
+        // plugins config directory (…\Notepad++\plugins\config), which works for both the roaming
+        // %AppData% layout and portable installations. Returns null if it cannot be determined.
+        internal static string GetNppConfigDir()
+        {
+            if (string.IsNullOrEmpty(xmlFilePath))
+                return null;
+
+            try
+            {
+                string pluginsConfigDir = Path.GetDirectoryName(xmlFilePath); // …\plugins\config
+                DirectoryInfo dir = new DirectoryInfo(pluginsConfigDir);
+                if (dir.Parent != null && dir.Parent.Parent != null)
+                    return dir.Parent.Parent.FullName;                        // …\Notepad++
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(ex);
+            }
+
+            return null;
+        }
+
         internal static IntPtr FindPluginMenuItem(uint commandId, out uint index)
         {
             IntPtr pluginsMenu = Win32.SendMessage(

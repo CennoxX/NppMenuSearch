@@ -20,7 +20,8 @@ namespace NppMenuSearch.Localization
         public string GroupTitle_Menu = "Menu";
         public string GroupTitle_Preferences = "Preferences";
         public string GroupTitle_OpenFiles = "Open Files";
-        public string SwitchGroupHelpText = "TAB switches groups: Recently Used ↔ Menu ↔ Open Files ↔ Preferences.";
+        public string GroupTitle_SearchResults = "Search results";
+        public string SwitchGroupHelpText = "TAB switches groups: Recently Used ↔ Menu ↔ Open Files ↔ Search results ↔ Preferences.";
         public string ShortcutHelpText_arg = "Press {0} again for all results.";
     }
 }
