@@ -60,6 +60,17 @@ namespace NppMenuSearch
                         PluginBase._funcItems.RefreshItems();
                         break;
 
+                    case (uint)NppMsg.NPPN_BEFORESHUTDOWN:
+                        // Save while the search widget still has its user-chosen width, before
+                        // the rebar teardown can shrink it (see Main.SaveSettings).
+                        Main.SaveSettings();
+                        break;
+
+                    case (uint)NppMsg.NPPN_CANCELSHUTDOWN:
+                        // Shutdown was aborted; allow settings to be re-saved on the next close.
+                        Main.CancelShutdown();
+                        break;
+
                     case (uint)NppMsg.NPPN_SHUTDOWN:
                         Main.PluginCleanUp();
                         Marshal.FreeHGlobal(_ptrPluginName);

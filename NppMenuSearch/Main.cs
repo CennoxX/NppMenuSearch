@@ -21,6 +21,7 @@ namespace NppMenuSearch
         public static bool FixedToolbarWidth = false;
         public static Size PreferredResultsWindowSize = new Size(0, 0);
         public static bool IsClosing { get; private set; }
+        static bool settingsSaved = false;
 
         internal const string PluginName = "NppMenuSearch";
         static string xmlFilePath = null;
@@ -268,9 +269,27 @@ namespace NppMenuSearch
             FlyingSearchForm?.Hide();
         }
 
-        internal static void PluginCleanUp()
+        // Called on NPPN_BEFORESHUTDOWN, before Notepad++ starts closing files and destroying
+        // its windows. At this point the search widget still has the user's chosen width. Saving
+        // here (instead of only on NPPN_SHUTDOWN) avoids persisting a shrunken width that the
+        // rebar teardown would otherwise report through ToolbarSearchForm.SizeChanged.
+        internal static void SaveSettings()
         {
             Settings.Save(xmlFilePath);
+            settingsSaved = true;
+        }
+
+        // Called on NPPN_CANCELSHUTDOWN when the user aborts a shutdown, so that a later real
+        // shutdown saves the (possibly changed) width again.
+        internal static void CancelShutdown()
+        {
+            settingsSaved = false;
+        }
+
+        internal static void PluginCleanUp()
+        {
+            if (!settingsSaved)
+                Settings.Save(xmlFilePath);
 
             // Woraround/fix for issue #13 (Plugin causes notepad++.exe process to remain open after quitting app):
             // Calling NppListener.ReleaseHandle() was an atempt to clean up resources. However, if other code 
