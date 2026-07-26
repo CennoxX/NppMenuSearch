@@ -455,6 +455,7 @@ namespace NppMenuSearch.Forms
 
                 OwnerTextBox.TextChanged += OwnerTextBox_TextChanged;
                 OwnerTextBox.KeyDown += OwnerTextBox_KeyDown;
+                OwnerTextBox.LostFocus += OwnerTextBox_LostFocus;
                 RebuildResultsList();
             }
             else
@@ -468,7 +469,45 @@ namespace NppMenuSearch.Forms
 
                 OwnerTextBox.TextChanged -= OwnerTextBox_TextChanged;
                 OwnerTextBox.KeyDown -= OwnerTextBox_KeyDown;
+                OwnerTextBox.LostFocus -= OwnerTextBox_LostFocus;
             }
+        }
+
+        void OwnerTextBox_LostFocus(object sender, EventArgs e)
+        {
+            // Check only after the current message has been processed: clicking a result briefly
+            // activates this popup (so the search box loses the focus) before the focus is handed
+            // back to it, and that must not be mistaken for a click somewhere else.
+            BeginInvoke((Action)HideIfFocusLeftSearch);
+        }
+
+        // Closes the popup when the focus went to some other part of Notepad++ (the editor, a tab,
+        // a docked panel, ...). Clicks inside the popup or the search widget itself keep it open.
+        void HideIfFocusLeftSearch()
+        {
+            if (!Visible)
+                return;
+
+            IntPtr focus = Win32.GetFocus();
+            if (focus != IntPtr.Zero && BelongsToSearchUi(focus))
+                return;
+
+            Hide();
+        }
+
+        bool BelongsToSearchUi(IntPtr hwnd)
+        {
+            if (hwnd == Handle || Win32.IsChild(Handle, hwnd))
+                return true;
+
+            ToolbarSearchForm toolbar = Main.ToolbarSearchForm;
+            if (toolbar != null && toolbar.IsHandleCreated &&
+                (hwnd == toolbar.Handle || Win32.IsChild(toolbar.Handle, hwnd)))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private void FillTabList()
