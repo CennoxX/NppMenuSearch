@@ -39,6 +39,16 @@ namespace NppMenuSearch.Forms
         readonly FileContentSearcher contentSearcher = new FileContentSearcher(Main.GetNppConfigDir());
         int contentSearchGeneration = 0;
 
+        // The content-search rows currently shown. They are kept across keystrokes and only replaced
+        // once a new search finishes, so the "Search results" group does not blank out while typing.
+        readonly List<ListViewItem> contentResultItems = new List<ListViewItem>();
+        int contentResultTotal = 0;
+
+        // Native ListView double-buffering (removes the flicker of the owner-drawn list on rebuild).
+        const int LVM_FIRST = 0x1000;
+        const int LVM_SETEXTENDEDLISTVIEWSTYLE = LVM_FIRST + 54;
+        const int LVS_EX_DOUBLEBUFFER = 0x00010000;
+
         public TextBox OwnerTextBox;
         public MenuItem MainMenu;
         private DialogItem PreferenceDialog;
@@ -71,8 +81,22 @@ namespace NppMenuSearch.Forms
 
             viewResults.ContextMenu = popupMenu;
 
+            EnableDoubleBuffering(viewResults);
+
             if (Main.PreferredResultsWindowSize.Width > 0 && Main.PreferredResultsWindowSize.Height > 0)
                 Size = Main.PreferredResultsWindowSize;
+        }
+
+        private static void EnableDoubleBuffering(ListView listView)
+        {
+            EventHandler apply = (s, e) =>
+                Win32.SendMessage(listView.Handle, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_DOUBLEBUFFER, LVS_EX_DOUBLEBUFFER);
+
+            if (listView.IsHandleCreated)
+                apply(listView, EventArgs.Empty);
+
+            // Re-apply whenever the handle is (re)created, e.g. after a dark-mode theme change.
+            listView.HandleCreated += apply;
         }
 
         private void Localization_NativeLangChanged(object sender, EventArgs e)
@@ -326,6 +350,12 @@ namespace NppMenuSearch.Forms
             else
             {
                 contentSearcher.Cancel();
+
+                // Forget the previous session's content rows so a reopened popup starts fresh
+                // (the items themselves are dropped by the next Items.Clear()).
+                contentResultItems.Clear();
+                contentResultTotal = 0;
+
                 OwnerTextBox.TextChanged -= OwnerTextBox_TextChanged;
                 OwnerTextBox.KeyDown -= OwnerTextBox_KeyDown;
             }
@@ -505,6 +535,11 @@ namespace NppMenuSearch.Forms
                 .ToList();
 
 
+            // Suppress redraw while we tear down and rebuild the list, so it updates in one paint
+            // instead of visibly blanking on every keystroke.
+            viewResults.BeginUpdate();
+            try
+            {
             viewResults.Items.Clear();
 
             resultGroupTabs.Header        = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_OpenFiles,   openTabsFiltered.Count);
@@ -556,6 +591,9 @@ namespace NppMenuSearch.Forms
                 });
             }
 
+            // Keep the previous search's content rows in place until the new search replaces them.
+            ReinsertContentResults();
+
             i = 0;
             foreach (var item in prefDialogItems)
             {
@@ -581,11 +619,62 @@ namespace NppMenuSearch.Forms
                 viewResults.Items[0].Selected = true;
 
             StartContentSearch();
+            }
+            finally
+            {
+                viewResults.EndUpdate();
+            }
+        }
+
+        // Re-adds the content rows shown by the previous (or still-running) search. Called during the
+        // rebuild so the "Search results" group stays populated until the new search produces results.
+        void ReinsertContentResults()
+        {
+            if (contentResultItems.Count == 0)
+                return;
+
+            foreach (var lvi in contentResultItems)
+                viewResults.Items.Add(lvi);
+
+            resultGroupSearchResults.Header = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_SearchResults, contentResultTotal);
+        }
+
+        // Removes the content rows from the list (e.g. when the term is too short or backup is off).
+        void ClearContentResults()
+        {
+            if (contentResultItems.Count == 0)
+            {
+                contentResultTotal = 0;
+                return;
+            }
+
+            viewResults.BeginUpdate();
+            try
+            {
+                foreach (var lvi in contentResultItems)
+                    viewResults.Items.Remove(lvi);
+                contentResultItems.Clear();
+                contentResultTotal = 0;
+                resultGroupSearchResults.Header = Main.Localization.Strings.GroupTitle_SearchResults;
+            }
+            finally
+            {
+                viewResults.EndUpdate();
+            }
+        }
+
+        int PreferencesInsertIndex()
+        {
+            for (int idx = 0; idx < viewResults.Items.Count; ++idx)
+                if (viewResults.Items[idx].Group == resultGroupPreferences)
+                    return idx;
+
+            return viewResults.Items.Count;
         }
 
         // Kicks off a background scan of the open files' contents for the current search term. The
-        // results arrive asynchronously and are appended to the "Search results" group. Only runs
-        // when Notepad++'s session snapshot/periodic backup is enabled (see FileContentSearcher).
+        // results arrive asynchronously and replace the "Search results" group. Only runs when
+        // Notepad++'s session snapshot/periodic backup is enabled (see FileContentSearcher).
         void StartContentSearch()
         {
             // Bump the generation first so any in-flight result from a previous search is dropped.
@@ -593,12 +682,12 @@ namespace NppMenuSearch.Forms
 
             contentSearcher.Cancel();
 
-            if (!contentSearcher.BackupSnapshotEnabled)
-                return;
-
             string term = OwnerTextBox.Text.Trim();
-            if (term.Length < MinContentSearchLength)
+            if (!contentSearcher.BackupSnapshotEnabled || term.Length < MinContentSearchLength)
+            {
+                ClearContentResults();
                 return;
+            }
 
             contentSearcher.BeginSearch(term, generation, OnContentSearchCompleted);
         }
@@ -625,38 +714,47 @@ namespace NppMenuSearch.Forms
             if (generation != contentSearchGeneration || !Visible)
                 return;
 
-            // Insert before the Preferences items so the Items collection order matches the visual
-            // group order (…Open Files, Search results, Preferences). The Up/Down keys navigate by
-            // Items index, so appending here would make them jump out of order.
-            int insertIndex = viewResults.Items.Count;
-            for (int idx = 0; idx < viewResults.Items.Count; ++idx)
+            // Swap in the new rows in one repaint, so the group updates only once we have the new
+            // info rather than blanking while the search runs.
+            viewResults.BeginUpdate();
+            try
             {
-                if (viewResults.Items[idx].Group == resultGroupPreferences)
+                foreach (var lvi in contentResultItems)
+                    viewResults.Items.Remove(lvi);
+                contentResultItems.Clear();
+
+                // Insert before the Preferences items so the Items collection order matches the visual
+                // group order (…Open Files, Search results, Preferences). The Up/Down keys navigate by
+                // Items index, so appending here would make them jump out of order.
+                int insertIndex = PreferencesInsertIndex();
+
+                int shown = 0;
+                foreach (var r in results)
                 {
-                    insertIndex = idx;
-                    break;
+                    if (shown++ == MaxSearchResults)
+                        break;
+
+                    ListViewItem lvi = new ListViewItem()
+                    {
+                        Tag = r,
+                        Text = FormatSearchResultText(r),
+                        ToolTipText = r.ToolTipText,
+                        Group = resultGroupSearchResults,
+                    };
+                    viewResults.Items.Insert(insertIndex++, lvi);
+                    contentResultItems.Add(lvi);
                 }
-            }
 
-            int shown = 0;
-            foreach (var r in results)
+                contentResultTotal = results.Count;
+                resultGroupSearchResults.Header = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_SearchResults, results.Count);
+
+                if (viewResults.SelectedItems.Count == 0 && viewResults.Items.Count > 0)
+                    viewResults.Items[0].Selected = true;
+            }
+            finally
             {
-                if (shown++ == MaxSearchResults)
-                    break;
-
-                viewResults.Items.Insert(insertIndex++, new ListViewItem()
-                {
-                    Tag = r,
-                    Text = FormatSearchResultText(r),
-                    ToolTipText = r.ToolTipText,
-                    Group = resultGroupSearchResults,
-                });
+                viewResults.EndUpdate();
             }
-
-            resultGroupSearchResults.Header = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_SearchResults, results.Count);
-
-            if (viewResults.SelectedItems.Count == 0 && viewResults.Items.Count > 0)
-                viewResults.Items[0].Selected = true;
         }
 
         static string FormatSearchResultText(SearchResultItem r)
