@@ -30,6 +30,13 @@ namespace NppMenuSearch
         public static Color SelectedItemBackColor { get { return Enabled ? Color.DodgerBlue : Color.LightGray; } }
         public static Color SelectedItemForeColor { get { return Enabled ? Color.White : Color.Black; } }
 
+        // Used for the ListView group-header caption and its separator line (see
+        // ResultsPopup.HandleGroupHeaderCustomDraw). DarkerText is Notepad++'s own dimmed text
+        // colour (0xC0C0C0 in the default dark theme) as opposed to the full-brightness item text
+        // (0xE0E0E0), so headers read as clearly secondary to the result rows without being hard to
+        // read.
+        public static Color GroupHeaderColor { get { return Enabled ? GetDarkModeColor(NppDarkModeColorIndex.DarkerText, SystemColors.GrayText) : SystemColors.GrayText; } }
+
         public static Bitmap GearIcon { get { return Enabled ? Properties.Resources.Gear_DarkMode : Properties.Resources.Gear; } }
         public static Bitmap SelectedGearIcon { get { return Properties.Resources.Gear; } }
 
@@ -96,9 +103,16 @@ namespace NppMenuSearch
             }
             else if (control is ListView)
             {
-                // Note that the group color can not be changed (only probably via SetWindowTheme("DarkMode_ItemsView") on Windows 10 ?  But ThemeExplorer suggests no.)
                 control.BackColor = TextBackColor;
                 control.ForeColor = TextForeColor;
+
+                // The group headers are drawn by the theme engine from theme data, so neither
+                // ForeColor nor NM_CUSTOMDRAW can recolor them. "DarkMode_ItemsView" is the
+                // (undocumented) theme dark-mode Explorer uses for its list views; it renders the
+                // group-header text in a light colour. Works because Notepad++ enables dark app
+                // mode for the whole process when its dark mode is on.
+                if (control.IsHandleCreated)
+                    SetWindowTheme(control.Handle, Enabled ? "DarkMode_ItemsView" : null, null);
             }
             else if (control is Form form)
             {
@@ -113,6 +127,9 @@ namespace NppMenuSearch
 
         [DllImport("uxtheme.dll", EntryPoint = "#133")]
         private extern static bool _AllowDarkModeForWindow(IntPtr hwnd, bool allow);
+
+        [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+        private extern static int SetWindowTheme(IntPtr hwnd, string pszSubAppName, string pszSubIdList);
 
 
         static readonly Color[] NoColors = new Color[0];

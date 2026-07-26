@@ -83,6 +83,10 @@ namespace NppMenuSearch.Forms
 
             EnableDoubleBuffering(viewResults);
 
+            // (Re)apply the dark-mode window theme whenever the handle is (re)created — the theme
+            // set via SetWindowTheme does not survive a handle recreation.
+            viewResults.HandleCreated += (sender, e) => DarkMode.ApplyTheme((Control)sender);
+
             if (Main.PreferredResultsWindowSize.Width > 0 && Main.PreferredResultsWindowSize.Height > 0)
                 Size = Main.PreferredResultsWindowSize;
         }
@@ -253,6 +257,11 @@ namespace NppMenuSearch.Forms
 
         protected override void WndProc(ref Message m)
         {
+            // Recolor the ListView group headers in dark mode (they are drawn by the OS in a dark,
+            // hard-to-read colour that neither BackColor/ForeColor nor owner-draw can influence).
+            if (m.Msg == Win32.WM_NOTIFY && HandleGroupHeaderCustomDraw(ref m))
+                return;
+
             switch (m.Msg)
             {
                 case Win32.WM_ACTIVATEAPP:
@@ -274,6 +283,107 @@ namespace NppMenuSearch.Forms
             }
 
             base.WndProc(ref m);
+        }
+
+        // Handles the ListView's NM_CUSTOMDRAW notification just for the group-header stage, giving
+        // the headers a readable (light) text colour in dark mode. Everything else falls through so
+        // the normal owner-drawing of the result items is untouched.
+        private bool HandleGroupHeaderCustomDraw(ref Message m)
+        {
+            if (!DarkMode.Enabled || m.LParam == IntPtr.Zero)
+                return false;
+
+            Win32.NMHDR hdr = (Win32.NMHDR)Marshal.PtrToStructure(m.LParam, typeof(Win32.NMHDR));
+            if (hdr.hwndFrom != viewResults.Handle || hdr.code != Win32.NM_CUSTOMDRAW)
+                return false;
+
+            Win32.NMLVCUSTOMDRAW nmlv = (Win32.NMLVCUSTOMDRAW)Marshal.PtrToStructure(m.LParam, typeof(Win32.NMLVCUSTOMDRAW));
+
+            // Group headers are reported at CDDS_PREPAINT with dwItemType == LVCDI_GROUP — NOT at
+            // CDDS_ITEMPREPAINT (that stage only ever carries LVCDI_ITEM). Result items therefore
+            // keep their normal owner-draw path and only the header drawing is taken over here.
+            if (nmlv.nmcd.dwDrawStage != Win32.CDDS_PREPAINT || nmlv.dwItemType != Win32.LVCDI_GROUP)
+                return false;
+
+            // We draw the header ourselves and skip the default drawing, because merely setting
+            // clrText would recolour the caption but leave the theme's separator line untouched.
+            int groupId = (int)nmlv.nmcd.dwItemSpec.ToInt64();
+            string header = GetGroupHeaderText(groupId) ?? "";
+
+            // rcText is the header row itself; nmcd.rc spans the whole group (header + its items),
+            // so only the former may be painted over.
+            bool haveHeaderRect = nmlv.rcText.Right > nmlv.rcText.Left && nmlv.rcText.Bottom > nmlv.rcText.Top;
+            Rectangle bounds = haveHeaderRect
+                ? Rectangle.FromLTRB(nmlv.rcText.Left, nmlv.rcText.Top, nmlv.rcText.Right, nmlv.rcText.Bottom)
+                : Rectangle.FromLTRB(nmlv.nmcd.rc.Left, nmlv.nmcd.rc.Top, nmlv.nmcd.rc.Right, nmlv.nmcd.rc.Bottom);
+
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                return false;
+
+            // One solid colour for both the caption and the rule. Earlier this used a translucent
+            // pen (alpha blended over DarkMode.TextForeColor) for the rule, but GDI+ does not
+            // reliably alpha-blend onto a raw HDC-backed Graphics (as opposed to a memory bitmap):
+            // it came out solid near-black instead of a dim line. A plain solid colour sidesteps
+            // that entirely.
+            Color headerColor = DarkMode.GroupHeaderColor;
+
+            using (Graphics g = Graphics.FromHdc(nmlv.nmcd.hdc))
+            {
+                TextFormatFlags flags =
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
+                    TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
+
+                // Clear the header row first, so nothing of the default rendering can show through.
+                if (haveHeaderRect)
+                {
+                    using (Brush back = new SolidBrush(DarkMode.TextBackColor))
+                        g.FillRectangle(back, bounds);
+                }
+
+                // Mimic the themed header layout: small left indent, then the caption, then a
+                // horizontal rule filling the rest of the line.
+                Rectangle textRect = new Rectangle(bounds.Left + 9, bounds.Top, bounds.Width - 9, bounds.Height);
+                TextRenderer.DrawText(g, header, viewResults.Font, textRect, headerColor, flags);
+
+                Size textSize = TextRenderer.MeasureText(g, header, viewResults.Font, new Size(int.MaxValue, int.MaxValue), flags);
+                int lineLeft = textRect.Left + textSize.Width + 6;
+                int lineRight = bounds.Right - 6;
+                if (lineRight > lineLeft)
+                {
+                    int y = bounds.Top + bounds.Height / 2;
+                    using (Pen pen = new Pen(headerColor))
+                        g.DrawLine(pen, lineLeft, y, lineRight, y);
+                }
+            }
+
+            m.Result = (IntPtr)Win32.CDRF_SKIPDEFAULT;
+            return true;
+        }
+
+        // Fetches a group's header text from the native control by group ID (the ID reported in
+        // NMLVCUSTOMDRAW is comctl's, which does not necessarily match the Groups collection index).
+        private string GetGroupHeaderText(int groupId)
+        {
+            const int bufferChars = 512;
+            IntPtr buffer = Marshal.AllocHGlobal(bufferChars * sizeof(char));
+            try
+            {
+                Win32.LVGROUP group = new Win32.LVGROUP();
+                group.cbSize = Marshal.SizeOf(typeof(Win32.LVGROUP));
+                group.mask = Win32.LVGF_HEADER;
+                group.pszHeader = buffer;
+                group.cchHeader = bufferChars;
+
+                IntPtr result = Win32.SendMessage(viewResults.Handle, Win32.LVM_GETGROUPINFO, groupId, ref group);
+                if (result == (IntPtr)(-1))
+                    return null;
+
+                return Marshal.PtrToStringUni(group.pszHeader);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
         }
 
         protected override bool ShowWithoutActivation { get { return true; } }

@@ -2371,6 +2371,9 @@ namespace NppPluginNET
         public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, ref NMHDR lParam);
         [DllImport("user32")]
         public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, ref TBBUTTONINFO lParam);
+
+        [DllImport("user32")]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, ref LVGROUP lParam);
         [DllImport("user32")]
         public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, IntPtr lParam);
         [DllImport("user32")]
@@ -2477,6 +2480,67 @@ namespace NppPluginNET
             public IntPtr hwndFrom;
             public UIntPtr idFrom;
             public uint code;
+        }
+
+        // NM_CUSTOMDRAW = NM_FIRST - 12
+        public const uint NM_CUSTOMDRAW = unchecked((uint)(0 - 12));
+
+        public const uint CDDS_PREPAINT = 0x00000001;
+        public const uint CDDS_ITEMPREPAINT = 0x00010001;
+
+        public const int CDRF_DODEFAULT = 0x00000000;
+        public const int CDRF_NEWFONT = 0x00000002;
+        public const int CDRF_SKIPDEFAULT = 0x00000004;
+        public const int CDRF_NOTIFYITEMDRAW = 0x00000020;
+
+        public const int LVM_GETGROUPINFO = 0x1000 + 149;
+        public const int LVGF_HEADER = 0x00000001;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct LVGROUP
+        {
+            public int cbSize;
+            public int mask;
+            public IntPtr pszHeader;
+            public int cchHeader;
+            public IntPtr pszFooter;
+            public int cchFooter;
+            public int iGroupId;
+            public int stateMask;
+            public int state;
+            public int uAlign;
+        }
+
+        public const uint LVCDI_ITEM = 0x00000000;
+        public const uint LVCDI_GROUP = 0x00000001;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct NMCUSTOMDRAW
+        {
+            public NMHDR hdr;
+            public uint dwDrawStage;
+            public IntPtr hdc;
+            public RECT rc;
+            public IntPtr dwItemSpec; // DWORD_PTR
+            public uint uItemState;
+            public IntPtr lItemlParam; // LPARAM
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct NMLVCUSTOMDRAW
+        {
+            public NMCUSTOMDRAW nmcd;
+            public uint clrText;
+            public uint clrTextBk;
+            public int iSubItem;
+            public uint dwItemType;
+            public uint clrFace;
+            public int iIconEffect;
+            public int iIconPhase;
+            public int iPartId;
+            public int iStateId;
+            public RECT rcText;
+            public uint uAlign;
         }
 
         [StructLayout(LayoutKind.Sequential)]
