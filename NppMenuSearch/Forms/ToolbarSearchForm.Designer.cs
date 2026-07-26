@@ -32,7 +32,7 @@
             this.frmSearch = new System.Windows.Forms.Panel();
             this.picClear = new System.Windows.Forms.PictureBox();
             this.txtSearch = new System.Windows.Forms.TextBox();
-            this.btnOptions = new System.Windows.Forms.Button();
+            this.btnOptions = new NppMenuSearch.Forms.NoFocusCuesButton();
             this.timerDelay = new System.Windows.Forms.Timer(this.components);
             this.menuOptions = new System.Windows.Forms.ContextMenu();
             this.menuItemFixWidgetSize = new System.Windows.Forms.MenuItem();
@@ -151,7 +151,7 @@
 		private System.Windows.Forms.TextBox txtSearch;
 		private System.Windows.Forms.Timer timerDelay;
 		private System.Windows.Forms.PictureBox picClear;
-        private System.Windows.Forms.Button btnOptions;
+        private NppMenuSearch.Forms.NoFocusCuesButton btnOptions;
         private System.Windows.Forms.ContextMenu menuOptions;
         private System.Windows.Forms.MenuItem menuItemFixWidgetSize;
         private System.Windows.Forms.MenuItem menuItem1;
