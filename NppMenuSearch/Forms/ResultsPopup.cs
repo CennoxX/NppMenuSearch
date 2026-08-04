@@ -39,10 +39,17 @@ namespace NppMenuSearch.Forms
         readonly FileContentSearcher contentSearcher = new FileContentSearcher(Main.GetNppConfigDir());
         int contentSearchGeneration = 0;
 
-        // The content-search rows currently shown. They are kept across keystrokes and only replaced
-        // once a new search finishes, so the "Search results" group does not blank out while typing.
-        readonly List<ListViewItem> contentResultItems = new List<ListViewItem>();
-        int contentResultTotal = 0;
+        // The results of the last finished content search. They are kept across keystrokes and only
+        // replaced once a new search finishes, so the "Search results" group does not blank out
+        // while typing.
+        List<SearchResultItem> contentResults = new List<SearchResultItem>();
+
+        // Rebuilding the list means matching the search term against the whole menu and the whole
+        // preferences dialog, which takes long enough to be noticeable while typing. This timer
+        // defers that work: WM_TIMER has the lowest message priority, so it only fires once the
+        // typed characters have been processed and painted. The list may lag one keystroke behind,
+        // but the search box never does.
+        readonly Timer timerRebuild = new Timer() { Interval = 1 };
 
         // Native ListView double-buffering (removes the flicker of the owner-drawn list on rebuild).
         const int LVM_FIRST = 0x1000;
@@ -80,6 +87,9 @@ namespace NppMenuSearch.Forms
             DarkMode_Changed();
 
             viewResults.ContextMenu = popupMenu;
+
+            timerRebuild.Tick += timerRebuild_Tick;
+            components.Add(timerRebuild);
 
             EnableDoubleBuffering(viewResults);
 
@@ -460,12 +470,11 @@ namespace NppMenuSearch.Forms
             }
             else
             {
+                timerRebuild.Stop();
                 contentSearcher.Cancel();
 
-                // Forget the previous session's content rows so a reopened popup starts fresh
-                // (the items themselves are dropped by the next Items.Clear()).
-                contentResultItems.Clear();
-                contentResultTotal = 0;
+                // Forget the previous session's content results so a reopened popup starts fresh.
+                contentResults = new List<SearchResultItem>();
 
                 OwnerTextBox.TextChanged -= OwnerTextBox_TextChanged;
                 OwnerTextBox.KeyDown -= OwnerTextBox_KeyDown;
@@ -557,6 +566,18 @@ namespace NppMenuSearch.Forms
 
         void OwnerTextBox_KeyDown(object sender, KeyEventArgs e)
         {
+            // The keys below act on the list, so it must be up to date before they are handled.
+            switch (e.KeyCode)
+            {
+                case Keys.Down:
+                case Keys.Up:
+                case Keys.Tab:
+                case Keys.Enter:
+                case Keys.Apps:
+                    FlushPendingRebuild();
+                    break;
+            }
+
             switch (e.KeyCode)
             {
                 case Keys.Down:
@@ -650,7 +671,54 @@ namespace NppMenuSearch.Forms
             }
         }
 
+        // One row of the results list, as it should look for the current search term. Comparing
+        // these against the rows the ListView already shows lets us leave unchanged rows completely
+        // untouched, which is what keeps the list from flickering while typing.
+        struct RowSpec
+        {
+            public readonly object Tag;
+            public readonly string Text;
+            public readonly string ToolTipText;
+            public readonly ListViewGroup Group;
+
+            public RowSpec(object tag, string text, string toolTipText, ListViewGroup group)
+            {
+                Tag = tag;
+                Text = text;
+                ToolTipText = toolTipText ?? "";
+                Group = group;
+            }
+        }
+
         void RebuildResultsList()
+        {
+            timerRebuild.Stop();
+
+            // Decide about the content search first: when the term is too short it drops the
+            // previous results, and UpdateResultsList() below has to see that.
+            StartContentSearch();
+            UpdateResultsList(resetSelection: true);
+        }
+
+        // Runs the rebuild that OwnerTextBox_TextChanged deferred. Reached only once no keystrokes
+        // are waiting any more, because WM_TIMER is delivered after all other pending messages.
+        void timerRebuild_Tick(object sender, EventArgs e)
+        {
+            RebuildResultsList();
+        }
+
+        // Makes sure the list matches the current search term before it is acted upon (activating an
+        // item, navigating with the arrow keys, ...), in case a deferred rebuild is still pending.
+        // ENTER can outrun the rebuild timer: key messages are delivered before WM_TIMER.
+        public void FlushPendingRebuild()
+        {
+            if (timerRebuild.Enabled)
+                RebuildResultsList();
+        }
+
+        // Recomputes what the results list should show and applies only the differences to the
+        // ListView. An unchanged list is not touched at all and therefore does not repaint.
+        void UpdateResultsList(bool resetSelection)
         {
             var words = OwnerTextBox.Text.SplitAt(' ');
 
@@ -684,29 +752,12 @@ namespace NppMenuSearch.Forms
                 .ToList();
 
 
-            // Suppress redraw while we tear down and rebuild the list, so it updates in one paint
-            // instead of visibly blanking on every keystroke.
-            viewResults.BeginUpdate();
-            try
-            {
-            viewResults.Items.Clear();
-
-            resultGroupTabs.Header        = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_OpenFiles,   openTabsFiltered.Count);
-            resultGroupMenu.Header        = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_Menu,        menuItems.Length - recentlyUsed.Where(hi => hi is MenuItem).Count());
-            resultGroupPreferences.Header = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_Preferences, prefDialogItems.Length - recentlyUsed.Where(hi => hi is DialogItem).Count());
-            resultGroupSearchResults.Header = Main.Localization.Strings.GroupTitle_SearchResults;
+            // The rows are collected in the order they are displayed in: the Up/Down keys navigate
+            // by Items index, so that order has to match the group order of the ListView.
+            List<RowSpec> rows = new List<RowSpec>();
 
             foreach (var hi in recentlyUsed)
-            {
-                ListViewItem item = new ListViewItem();
-                item.Tag = hi;
-                item.Text = hi + "";
-                item.Group = resultGroupRecentlyUsed;
-                viewResults.Items.Add(item);
-#if DEBUG
-                item.Text = string.Format("[{1:0.0000}] {0}", hi, hi.MatchingSimilarity(words));
-#endif
-            }
+                rows.Add(new RowSpec(hi, ItemText(hi, words), null, resultGroupRecentlyUsed));
 
             int i = 0;
             foreach (var item in menuItems)
@@ -717,31 +768,21 @@ namespace NppMenuSearch.Forms
                 if (i++ == MaxMenuResults)
                     break;
 
-                ListViewItem lvitem = new ListViewItem()
-                {
-                    Tag = item,
-                    Text = item.ToString(),
-                    Group = resultGroupMenu,
-                };
-                viewResults.Items.Add(lvitem);
-#if DEBUG
-                lvitem.Text = string.Format("[{1:0.0000}] {0}", item, item.MatchingSimilarity(words));
-#endif
+                rows.Add(new RowSpec(item, ItemText(item, words), null, resultGroupMenu));
             }
 
             foreach (var item in openTabsFiltered)
-            {
-                viewResults.Items.Add(new ListViewItem()
-                {
-                    Tag = item,
-                    Text = item.ToString(),
-                    ToolTipText = item.ToolTipText,
-                    Group = resultGroupTabs,
-                });
-            }
+                rows.Add(new RowSpec(item, item.ToString(), item.ToolTipText, resultGroupTabs));
 
-            // Keep the previous search's content rows in place until the new search replaces them.
-            ReinsertContentResults();
+            // The rows of the last finished search stay until a new search replaces them.
+            i = 0;
+            foreach (var item in contentResults)
+            {
+                if (i++ == MaxSearchResults)
+                    break;
+
+                rows.Add(new RowSpec(item, FormatSearchResultText(item), item.ToolTipText, resultGroupSearchResults));
+            }
 
             i = 0;
             foreach (var item in prefDialogItems)
@@ -752,73 +793,86 @@ namespace NppMenuSearch.Forms
                 if (i++ == MaxPreferencesResults)
                     break;
 
-                ListViewItem lvitem = new ListViewItem()
-                {
-                    Tag = item,
-                    Text = item.ToString(),
-                    Group = resultGroupPreferences,
-                };
-                viewResults.Items.Add(lvitem);
+                rows.Add(new RowSpec(item, ItemText(item, words), null, resultGroupPreferences));
+            }
+
+            SetGroupHeader(resultGroupTabs,        string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_OpenFiles,   openTabsFiltered.Count));
+            SetGroupHeader(resultGroupMenu,        string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_Menu,        menuItems.Length - recentlyUsed.Where(hi => hi is MenuItem).Count()));
+            SetGroupHeader(resultGroupPreferences, string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_Preferences, prefDialogItems.Length - recentlyUsed.Where(hi => hi is DialogItem).Count()));
+
+            // The content search only reports a count once it has actually run.
+            SetGroupHeader(resultGroupSearchResults, contentResults.Count == 0
+                ? Main.Localization.Strings.GroupTitle_SearchResults
+                : string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_SearchResults, contentResults.Count));
+
+            ApplyRows(rows, resetSelection);
+        }
+
+        static string ItemText(HierarchyItem item, IEnumerable<string> words)
+        {
 #if DEBUG
-                lvitem.Text = string.Format("[{1}] {0}", item, item.MatchingSimilarity(words));
+            return string.Format("[{1:0.0000}] {0}", item, item.MatchingSimilarity(words));
+#else
+            return item.ToString();
 #endif
+        }
+
+        // Assigning the same header again would repaint it, so only do it when it really changed.
+        static void SetGroupHeader(ListViewGroup group, string header)
+        {
+            if (group.Header != header)
+                group.Header = header;
+        }
+
+        // Brings the ListView in line with `rows`, changing as little as possible: rows that are
+        // already correct are not written to, and only the surplus/missing rows at the end are
+        // removed/added. Each write invalidates just the row it affects, so a list that stays the
+        // same (or nearly the same) while typing does not visibly redraw.
+        //
+        // Deliberately without BeginUpdate()/EndUpdate(): EndUpdate() invalidates the whole control,
+        // which repaints every row even when a single one changed — exactly the flicker this avoids.
+        // Nothing pumps messages in between, so the individual invalidations still end up in one
+        // WM_PAINT.
+        void ApplyRows(List<RowSpec> rows, bool resetSelection)
+        {
+            int common = Math.Min(rows.Count, viewResults.Items.Count);
+            for (int i = 0; i < common; ++i)
+            {
+                ListViewItem lvi = viewResults.Items[i];
+                RowSpec row = rows[i];
+
+                lvi.Tag = row.Tag;
+                if (lvi.Group != row.Group)
+                    lvi.Group = row.Group;
+                if (lvi.Text != row.Text)
+                    lvi.Text = row.Text;
+                if (lvi.ToolTipText != row.ToolTipText)
+                    lvi.ToolTipText = row.ToolTipText;
             }
 
-            if (viewResults.Items.Count > 0)
+            for (int i = viewResults.Items.Count - 1; i >= rows.Count; --i)
+                viewResults.Items.RemoveAt(i);
+
+            for (int i = viewResults.Items.Count; i < rows.Count; ++i)
+            {
+                RowSpec row = rows[i];
+                viewResults.Items.Add(new ListViewItem()
+                {
+                    Tag = row.Tag,
+                    Text = row.Text,
+                    ToolTipText = row.ToolTipText,
+                    Group = row.Group,
+                });
+            }
+
+            if (viewResults.Items.Count == 0)
+                return;
+
+            // Select the first row again after the search term changed, but leave a selection the
+            // user made with the arrow keys alone when results merely arrived in the background.
+            bool firstIsSelected = viewResults.SelectedIndices.Count == 1 && viewResults.SelectedIndices[0] == 0;
+            if (resetSelection ? !firstIsSelected : viewResults.SelectedIndices.Count == 0)
                 viewResults.Items[0].Selected = true;
-
-            StartContentSearch();
-            }
-            finally
-            {
-                viewResults.EndUpdate();
-            }
-        }
-
-        // Re-adds the content rows shown by the previous (or still-running) search. Called during the
-        // rebuild so the "Search results" group stays populated until the new search produces results.
-        void ReinsertContentResults()
-        {
-            if (contentResultItems.Count == 0)
-                return;
-
-            foreach (var lvi in contentResultItems)
-                viewResults.Items.Add(lvi);
-
-            resultGroupSearchResults.Header = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_SearchResults, contentResultTotal);
-        }
-
-        // Removes the content rows from the list (e.g. when the term is too short or backup is off).
-        void ClearContentResults()
-        {
-            if (contentResultItems.Count == 0)
-            {
-                contentResultTotal = 0;
-                return;
-            }
-
-            viewResults.BeginUpdate();
-            try
-            {
-                foreach (var lvi in contentResultItems)
-                    viewResults.Items.Remove(lvi);
-                contentResultItems.Clear();
-                contentResultTotal = 0;
-                resultGroupSearchResults.Header = Main.Localization.Strings.GroupTitle_SearchResults;
-            }
-            finally
-            {
-                viewResults.EndUpdate();
-            }
-        }
-
-        int PreferencesInsertIndex()
-        {
-            for (int idx = 0; idx < viewResults.Items.Count; ++idx)
-                if (viewResults.Items[idx].Group == resultGroupPreferences)
-                    return idx;
-
-            return viewResults.Items.Count;
         }
 
         // Kicks off a background scan of the open files' contents for the current search term. The
@@ -834,7 +888,7 @@ namespace NppMenuSearch.Forms
             string term = OwnerTextBox.Text.Trim();
             if (!contentSearcher.BackupSnapshotEnabled || term.Length < MinContentSearchLength)
             {
-                ClearContentResults();
+                contentResults = new List<SearchResultItem>();
                 return;
             }
 
@@ -863,47 +917,11 @@ namespace NppMenuSearch.Forms
             if (generation != contentSearchGeneration || !Visible)
                 return;
 
-            // Swap in the new rows in one repaint, so the group updates only once we have the new
-            // info rather than blanking while the search runs.
-            viewResults.BeginUpdate();
-            try
-            {
-                foreach (var lvi in contentResultItems)
-                    viewResults.Items.Remove(lvi);
-                contentResultItems.Clear();
+            contentResults = results;
 
-                // Insert before the Preferences items so the Items collection order matches the visual
-                // group order (…Open Files, Search results, Preferences). The Up/Down keys navigate by
-                // Items index, so appending here would make them jump out of order.
-                int insertIndex = PreferencesInsertIndex();
-
-                int shown = 0;
-                foreach (var r in results)
-                {
-                    if (shown++ == MaxSearchResults)
-                        break;
-
-                    ListViewItem lvi = new ListViewItem()
-                    {
-                        Tag = r,
-                        Text = FormatSearchResultText(r),
-                        ToolTipText = r.ToolTipText,
-                        Group = resultGroupSearchResults,
-                    };
-                    viewResults.Items.Insert(insertIndex++, lvi);
-                    contentResultItems.Add(lvi);
-                }
-
-                contentResultTotal = results.Count;
-                resultGroupSearchResults.Header = string.Format("{0} ({1})", Main.Localization.Strings.GroupTitle_SearchResults, results.Count);
-
-                if (viewResults.SelectedItems.Count == 0 && viewResults.Items.Count > 0)
-                    viewResults.Items[0].Selected = true;
-            }
-            finally
-            {
-                viewResults.EndUpdate();
-            }
+            // Only the "Search results" rows can have changed, and the update leaves every other row
+            // untouched — so this does not disturb what the user is currently looking at.
+            UpdateResultsList(resetSelection: false);
         }
 
         static string FormatSearchResultText(SearchResultItem r)
@@ -921,11 +939,21 @@ namespace NppMenuSearch.Forms
             MaxSearchResults = DefaultMaxSearchResults;
             lblHelp.Visible = true;
 
-            RebuildResultsList();
+            // Don't rebuild right here: that would run between the keystroke and its repaint and
+            // make typing feel sluggish. Restarting the timer instead postpones the rebuild until
+            // the message queue has run dry, so the character is on screen first and a burst of
+            // keystrokes is collapsed into a single rebuild. The list shows the previous term for
+            // those few milliseconds, which is far less noticeable than a lagging search box.
+            timerRebuild.Stop();
+            timerRebuild.Start();
         }
 
         public void ItemSelected()
         {
+            // No FlushPendingRebuild() here: a rebuild resets the selection to the first row, which
+            // would discard the row a mouse click just selected. The keyboard paths that can outrun
+            // a pending rebuild (OwnerTextBox_KeyDown, ToolbarSearchForm.btnOk_Click) flush before
+            // calling us instead.
             if (viewResults.SelectedItems.Count == 0)
                 return;
 
@@ -1129,11 +1157,11 @@ namespace NppMenuSearch.Forms
         public void OpenPreferences(UniqueControlIdx destinationCtrlIdx)
         {
             /* WM_TIMER messages have the lowest priority, so the following EventHandler will be called 
-			 * (immediately) after the Preferences Dialog is shown [becuase we use a tick count of 1ms]
-			 * 
-			 * This does not work when the Preferences window is already visible, because it wont be 
-			 * activated by Notepad++
-			 */
+             * (immediately) after the Preferences Dialog is shown [becuase we use a tick count of 1ms]
+             * 
+             * This does not work when the Preferences window is already visible, because it wont be 
+             * activated by Notepad++
+             */
             EventHandler tick = null;
             tick = (timer, ev) =>
             {

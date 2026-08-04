@@ -518,7 +518,13 @@ namespace NppMenuSearch.Forms
 
         private void btnOk_Click(object sender, EventArgs e)
         {
-            ResultsPopup?.ItemSelected();
+            if (ResultsPopup == null)
+                return;
+
+            // This is the ENTER key arriving via Notepad++'s IsDialogMessage(), so it bypasses
+            // txtSearch's KeyDown. Bring the results list up to date before acting on it.
+            ResultsPopup.FlushPendingRebuild();
+            ResultsPopup.ItemSelected();
         }
 
         private void ToolbarSearchForm_SizeChanged(object sender, EventArgs e)
